@@ -1,0 +1,552 @@
+.homePageWrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    height: 100vh;
+}
+
+.formWrapper {
+    background: #282a36;
+    padding: 20px;
+    border-radius: 10px;
+    width: 400px;
+    max-width: 90%;
+}
+
+footer {
+    position: fixed;
+    bottom: 0;
+}
+
+footer a {
+    color: #4aee88;
+}
+
+.inputGroup {
+    display: flex;
+    flex-direction: column;
+}
+
+.mainLabel {
+    margin-bottom: 20px;
+    margin-top: 0;
+}
+
+.homePageLogo {
+    height: 80px;
+    margin-bottom: 30px;
+}
+
+.inputBox {
+    padding: 10px;
+    border-radius: 5px;
+    outline: none;
+    border: none;
+    margin-bottom: 14px;
+    background: #eee;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.btn {
+    border: none;
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease-in-out;
+}
+
+.joinBtn,
+.leaveBtn {
+    background: #4aed88;
+    width: 100px;
+    margin-left: auto;
+}
+
+.joinBtn:hover,
+.leaveBtn:hover {
+    background: #2b824c;
+}
+
+.createInfo {
+    margin: 0 auto;
+    margin-top: 20px;
+}
+
+.createNewBtn {
+    color: #4aed88;
+    text-decoration: none;
+    border-bottom: 1px solid #4aed88;
+    transition: all 0.3s ease-in-out;
+}
+
+.createNewBtn:hover,
+footer a:hover {
+    color: #368654;
+    border-color: #368654;
+}
+
+.mainWrap {
+    height: 100vh;
+    min-height: 0;
+    display: grid;
+    overflow: hidden;
+}
+
+.aside {
+    min-width: 0;
+    overflow: auto;
+    background: #1c1e29;
+    padding: 16px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+}
+.asideInner {
+    flex: 1;
+}
+
+.clientsList {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.filesHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 28px;
+    border-bottom: 1px solid #424242;
+}
+
+.filesToggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0 8px;
+    border: 0;
+    color: #fff;
+    background: transparent;
+    cursor: pointer;
+}
+
+.iconBtn {
+    border: 0;
+    color: #4aed88;
+    background: transparent;
+    padding: 2px;
+    cursor: pointer;
+}
+
+.iconBtn svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.filesToggle > svg:first-child,
+.iconBtn svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: #4aed88;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.filesToggle .chevronIcon {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: #a5a5a5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+    transition: transform 0.2s ease;
+}
+
+.filesToggle[aria-expanded='false'] .chevronIcon {
+    transform: rotate(-90deg);
+}
+
+.newFileForm {
+    display: block;
+    margin: 10px 0;
+}
+
+.newFileForm input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 7px;
+    border: 1px solid #424242;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.newFileForm input {
+    color: #fff;
+    background: #282a36;
+}
+
+.fileError {
+    display: block;
+    margin-top: 6px;
+    color: #ff8585;
+    font-size: 11px;
+}
+
+.filesList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.fileItem {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #fff;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.fileItem small {
+    color: #a5a5a5;
+    font-size: 11px;
+}
+
+.fileName {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+}
+
+.fileLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.languageIcon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+}
+
+.languageIcon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: #4aed88;
+    stroke-width: 1.5;
+}
+
+.languageIcon text {
+    fill: #4aed88;
+    stroke: none;
+    font: 700 7px Arial, sans-serif;
+}
+
+.fileItem:hover,
+.fileItem.active {
+    border-color: #4aed88;
+    background: #282a36;
+}
+
+.fileItem .deleteFileBtn {
+    visibility: hidden;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    color: #ff7b7b;
+    background: transparent;
+    cursor: pointer;
+}
+
+.fileItem:hover .deleteFileBtn,
+.fileItem:focus-within .deleteFileBtn {
+    visibility: visible;
+}
+
+.fileItem .deleteFileBtn svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.sidebarResizeHandle,
+.outputResizeHandle {
+    z-index: 2;
+    background: #424242;
+}
+
+.sidebarResizeHandle {
+    cursor: col-resize;
+}
+
+.sidebarResizeHandle:hover,
+.outputResizeHandle:hover {
+    background: #4aed88;
+}
+
+.client {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    font-weight: bold;
+}
+.userName {
+    margin-top: 10px;
+}
+
+.logo {
+    border-bottom: 1px solid #424242;
+    padding-bottom: 10px;
+}
+
+.logoImage {
+    height: 60px;
+}
+
+.leaveBtn {
+    width: 100%;
+    margin-top: 20px;
+}
+.CodeMirror {
+    height: 100%;
+    min-height: 0;
+    font-size: 20px;
+    line-height: 1.6;
+    padding-top: 20px;
+    box-sizing: border-box;
+}
+
+.editorWrap {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #282a36;
+}
+
+.fileTabs {
+    display: flex;
+    min-height: 38px;
+    overflow-x: auto;
+    background: #1c1e29;
+}
+
+.fileTab {
+    display: flex;
+    align-items: center;
+    border-right: 1px solid #424242;
+    background: #282a36;
+}
+
+.fileTab.active {
+    background: #343746;
+    box-shadow: inset 0 -2px #4aed88;
+}
+
+.fileTabButton,
+.closeTabButton {
+    border: 0;
+    color: #d8d8d8;
+    background: transparent;
+    cursor: pointer;
+}
+
+.fileTabButton {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 10px 0 12px;
+}
+
+.tabFileName {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.closeTabButton {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    margin-right: 4px;
+    place-items: center;
+}
+
+.closeTabButton:hover {
+    color: #ff8585;
+}
+
+.closeTabButton svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 2;
+}
+
+.dirtyDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f4c95d;
+}
+
+.editorMount {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.runnerPanel {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 20px 20px;
+    background: #1c1e29;
+    color: #fff;
+    box-sizing: border-box;
+}
+
+.runnerHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+}
+
+.runnerHeader h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.runBtn {
+    color: #172019;
+    background: #4aed88;
+    padding: 8px 14px;
+}
+
+.runBtn:hover {
+    background: #2b824c;
+    color: #fff;
+}
+
+.runBtn:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.stdinInput {
+    box-sizing: border-box;
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid #424242;
+    border-radius: 3px;
+    outline: none;
+    color: #f8f8f2;
+    background: #282a36;
+    font: 14px Consolas, 'Courier New', monospace;
+}
+
+.fileActions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 20px;
+    color: #b8b8b8;
+    background: #282a36;
+    font: 13px Consolas, 'Courier New', monospace;
+}
+
+.outputResizeHandle {
+    flex: 0 0 6px;
+    cursor: row-resize;
+}
+
+body.isResizing {
+    user-select: none;
+}
+
+.outputPanel {
+    min-height: 76px;
+    max-height: 220px;
+    overflow: auto;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #424242;
+    background: #282a36;
+    color: #f8f8f2;
+    font: 14px/1.5 Consolas, 'Courier New', monospace;
+    white-space: pre-wrap;
+}
+
+.runnerFrame {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 0;
+    visibility: hidden;
+}
+
+@media (max-width: 700px) {
+    .mainWrap {
+        height: auto;
+        min-height: 100vh;
+        grid-template-columns: 1fr !important;
+        overflow: visible;
+    }
+
+    .sidebarResizeHandle,
+    .outputResizeHandle {
+        display: none;
+    }
+
+    .aside {
+        min-height: auto;
+    }
+
+    .asideInner {
+        flex: initial;
+    }
+
+    .CodeMirror {
+        min-height: 0;
+    }
+}
