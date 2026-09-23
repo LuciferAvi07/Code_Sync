@@ -13,25 +13,24 @@ import {
     useParams,
 } from 'react-router-dom';
 
-const FileIcon = ({ className = '' }) => (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <path d="M14 2v6h6M8 13h8M8 17h6" />
-    </svg>
+const FileIcon = () => (
+    <img className="fileIconImage" src="/new-file.svg" alt="" aria-hidden="true" />
 );
 
 const LanguageIcon = ({ fileName }) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
-    const labels = {
-        js: 'JS', jsx: 'JS', ts: 'TS', tsx: 'TS', py: 'PY', java: 'JV',
-        cpp: 'C+', cc: 'C+', cxx: 'C+', c: 'C', h: 'C', cs: 'C#', go: 'GO',
-        rs: 'RS', rb: 'RB', php: 'PHP', kt: 'KT', kts: 'KT', swift: 'SW', sql: 'SQL', txt: 'TXT',
+    const languageAssets = {
+        js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+        py: 'python', java: 'java', cpp: 'cplusplus', cc: 'cplusplus',
+        cxx: 'cplusplus', c: 'c', h: 'c', cs: 'csharp', go: 'go', rs: 'rust',
+        rb: 'ruby', php: 'php', kt: 'kotlin', kts: 'kotlin', swift: 'swift',
+        sql: 'database',
     };
+    const assetName = languageAssets[extension];
     return <span className={`languageIcon language-${extension || 'file'}`} title={getLanguageForFile(fileName).label}>
-        <svg viewBox="0 0 32 32" aria-hidden="true">
-            <path d="M5 3h22v26H5z" />
-            <text x="16" y="20" textAnchor="middle">{labels[extension] || 'FILE'}</text>
-        </svg>
+        {assetName ? (
+            <img src={`https://cdn.jsdelivr.net/gh/devicons/devicon/icons/${assetName}/${assetName}-original.svg`} alt="" aria-hidden="true" />
+        ) : <span className="languageFallback">FILE</span>}
     </span>;
 };
 
