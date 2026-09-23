@@ -1,11 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { buildPreviewDocument } from '../preview';
 
-const CodeRunner = ({ code, fileName, language, style }) => {
+const CodeRunner = ({ code, fileName, language, files = [], style }) => {
     const [stdin, setStdin] = useState('');
     const [output, setOutput] = useState('Run the selected file to see its output.');
     const [isRunning, setIsRunning] = useState(false);
+    const [previewDoc, setPreviewDoc] = useState(null);
+    const isPreview = language.runner === 'preview';
+
+    useEffect(() => {
+        setPreviewDoc(null);
+        setOutput('Run the selected file to see its output.');
+    }, [fileName]);
 
     const runCode = async () => {
+        if (isPreview) {
+            setPreviewDoc(buildPreviewDocument(fileName, files, code));
+            setOutput('Preview rendered below. Press Run Code again after editing.');
+            return;
+        }
+
         if (!language.judge0Id) {
             setOutput(`${language.label} files cannot be executed yet.`);
             return;
@@ -45,19 +59,30 @@ const CodeRunner = ({ code, fileName, language, style }) => {
     return (
         <section className="runnerPanel" style={style}>
             <div className="runnerHeader">
-                <h3>Output</h3>
+                <h3>{isPreview ? 'Preview' : 'Output'}</h3>
                 <button className="btn runBtn" onClick={runCode} disabled={isRunning}>
                     {isRunning ? 'Running...' : 'Run Code'}
                 </button>
             </div>
-            <input
-                className="stdinInput"
-                value={stdin}
-                onChange={(event) => setStdin(event.target.value)}
-                placeholder="Program input (optional)"
-                aria-label="Program input"
-            />
-            <pre className="outputPanel">{output}</pre>
+            {!isPreview && (
+                <input
+                    className="stdinInput"
+                    value={stdin}
+                    onChange={(event) => setStdin(event.target.value)}
+                    placeholder="Program input (optional)"
+                    aria-label="Program input"
+                />
+            )}
+            {isPreview && previewDoc ? (
+                <iframe
+                    className="previewFrame"
+                    title={`${fileName} preview`}
+                    srcDoc={previewDoc}
+                    sandbox="allow-scripts allow-modals allow-forms allow-popups"
+                />
+            ) : (
+                <pre className="outputPanel">{output}</pre>
+            )}
         </section>
     );
 };

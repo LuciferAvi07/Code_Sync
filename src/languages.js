@@ -83,6 +83,20 @@ const LANGUAGES = {
         mode: 'text/x-sql',
         judge0Id: 82,
     },
+    html: {
+        label: 'HTML',
+        extensions: ['html', 'htm'],
+        mode: 'htmlmixed',
+        judge0Id: null,
+        runner: 'preview',
+    },
+    css: {
+        label: 'CSS',
+        extensions: ['css'],
+        mode: 'css',
+        judge0Id: null,
+        runner: 'preview',
+    },
     plaintext: {
         label: 'Plain text',
         extensions: ['txt'],

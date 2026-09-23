@@ -13,7 +13,10 @@ import 'codemirror/mode/ruby/ruby';
 import 'codemirror/mode/php/php';
 import 'codemirror/mode/sql/sql';
 import 'codemirror/mode/swift/swift';
-import ACTIONS from '../Actions';
+import 'codemirror/mode/xml/xml';
+import 'codemirror/mode/css/css';
+import 'codemirror/mode/htmlmixed/htmlmixed';
+import ACTIONS from '../Actions.json';
 
 const Editor = ({ socketRef, roomId, initialCode, language, onCodeChange }) => {
     const editorRef = useRef(null);

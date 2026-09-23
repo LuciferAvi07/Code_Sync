@@ -1,10 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import ACTIONS from '../Actions';
+import ACTIONS from '../Actions.json';
 import Client from '../components/Client';
 import Editor from '../components/Editor';
 import CodeRunner from '../components/CodeRunner';
 import { getLanguageForFile } from '../languages';
+import {
+    normalizePath,
+    splitPath,
+    hasTraversalSegments,
+    ancestorPaths,
+    isUnderFolder,
+    buildFileTree,
+} from '../fileTree';
 import { initSocket } from '../socket';
 import {
     useLocation,
@@ -17,6 +25,23 @@ const FileIcon = () => (
     <img className="fileIconImage" src="/new-file.svg" alt="" aria-hidden="true" />
 );
 
+const FolderIcon = ({ size = 21 }) => (
+    <svg
+        className="folderIcon"
+        viewBox="0 0 24 24"
+        width={size}
+        height={size}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+    >
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+);
+
 const LanguageIcon = ({ fileName }) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
     const languageAssets = {
@@ -24,6 +49,7 @@ const LanguageIcon = ({ fileName }) => {
         py: 'python', java: 'java', cpp: 'cplusplus', cc: 'cplusplus',
         cxx: 'cplusplus', c: 'c', h: 'c', cs: 'csharp', go: 'go', rs: 'rust',
         rb: 'ruby', php: 'php', kt: 'kotlin', kts: 'kotlin', swift: 'swift',
+        html: 'html5', css: 'css3',
         sql: 'database',
     };
     const assetName = languageAssets[extension];
@@ -76,6 +102,18 @@ const EditorPage = () => {
     const [isCreatingFile, setIsCreatingFile] = useState(false);
     const [newFileName, setNewFileName] = useState('');
     const [fileError, setFileError] = useState('');
+    const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [folderError, setFolderError] = useState('');
+    const [collapsedFolders, setCollapsedFolders] = useState({});
+    const [folders, setFolders] = useState(() => {
+        try {
+            const savedRoom = JSON.parse(localStorage.getItem(storageKey));
+            return Array.isArray(savedRoom?.folders) ? savedRoom.folders : [];
+        } catch {
+            return [];
+        }
+    });
     const [isFilesOpen, setIsFilesOpen] = useState(true);
     const [sidebarWidth, setSidebarWidth] = useState(230);
     const [outputHeight, setOutputHeight] = useState(260);
@@ -87,9 +125,9 @@ const EditorPage = () => {
     useEffect(() => {
         localStorage.setItem(
             storageKey,
-            JSON.stringify({ files, activeFileName, openFileNames })
+            JSON.stringify({ files, folders, activeFileName, openFileNames })
         );
-    }, [activeFileName, files, openFileNames, storageKey]);
+    }, [activeFileName, files, folders, openFileNames, storageKey]);
 
     useEffect(() => {
         const handleKeyDown = (event) => {
@@ -156,9 +194,15 @@ const EditorPage = () => {
     }
 
     function createFile() {
-        const name = newFileName.trim();
+        const name = normalizePath(newFileName);
         if (!name) return;
-        if (!/^[^./\\]+\.[^./\\]+$/.test(name)) {
+        const segments = splitPath(name);
+        if (hasTraversalSegments(segments)) {
+            setFileError('Folder names "." and ".." are not allowed');
+            return;
+        }
+        const baseName = segments[segments.length - 1];
+        if (!baseName || !baseName.includes('.')) {
             setFileError('File should have the extension');
             return;
         }
@@ -166,13 +210,110 @@ const EditorPage = () => {
             setFileError('A file with this name already exists');
             return;
         }
+        if (folders.includes(name)) {
+            setFileError('A folder with this name already exists');
+            return;
+        }
+        const neededFolders = ancestorPaths(segments);
+        const conflicting = neededFolders.find((folder) =>
+            files.some((file) => file.name === folder)
+        );
+        if (conflicting) {
+            setFileError(`A file named "${conflicting}" already exists`);
+            return;
+        }
 
         const newFile = { name, content: '', savedContent: '' };
         setFiles((currentFiles) => [...currentFiles, newFile]);
+        setFolders((currentFolders) => [
+            ...currentFolders,
+            ...neededFolders.filter((folder) => !currentFolders.includes(folder)),
+        ]);
         openFile(newFile.name);
         setNewFileName('');
         setFileError('');
         setIsCreatingFile(false);
+    }
+
+    function createFolder() {
+        const path = normalizePath(newFolderName);
+        if (!path) return;
+        const segments = splitPath(path);
+        if (hasTraversalSegments(segments)) {
+            setFolderError('Folder names "." and ".." are not allowed');
+            return;
+        }
+        if (folders.includes(path)) {
+            setFolderError('A folder with this name already exists');
+            return;
+        }
+        if (files.some((file) => file.name === path)) {
+            setFolderError('A file with this name already exists');
+            return;
+        }
+        const neededFolders = ancestorPaths(segments, true);
+        const conflicting = neededFolders.find((folder) =>
+            files.some((file) => file.name === folder)
+        );
+        if (conflicting) {
+            setFolderError(`A file named "${conflicting}" already exists`);
+            return;
+        }
+        setFolders((currentFolders) => [
+            ...currentFolders,
+            ...neededFolders.filter((folder) => !currentFolders.includes(folder)),
+        ]);
+        setNewFolderName('');
+        setFolderError('');
+        setIsCreatingFolder(false);
+    }
+
+    function deleteFolder(folderPath) {
+        const insideFiles = files.filter((file) =>
+            isUnderFolder(file.name, folderPath)
+        );
+        const message = insideFiles.length
+            ? `Delete folder "${folderPath}" and ${insideFiles.length} file(s) inside it?`
+            : `Delete folder "${folderPath}"?`;
+        if (!window.confirm(message)) return;
+        if (insideFiles.length === files.length) {
+            toast.error('A room must have at least one file.');
+            return;
+        }
+
+        const remainingFiles = files.filter(
+            (file) => !isUnderFolder(file.name, folderPath)
+        );
+        const remainingFolders = folders.filter(
+            (folder) => folder !== folderPath && !isUnderFolder(folder, folderPath)
+        );
+        const remainingOpenFiles = openFileNames.filter(
+            (name) => !isUnderFolder(name, folderPath)
+        );
+        setFiles(remainingFiles);
+        setFolders(remainingFolders);
+        setOpenFileNames(
+            remainingOpenFiles.length ? remainingOpenFiles : [remainingFiles[0].name]
+        );
+        if (isUnderFolder(activeFile.name, folderPath)) {
+            setActiveFileName(remainingFiles[0].name);
+        }
+        toast.success(`Folder "${folderPath}" deleted.`);
+    }
+
+    function toggleFolder(folderPath) {
+        setCollapsedFolders((current) => ({
+            ...current,
+            [folderPath]: !current[folderPath],
+        }));
+    }
+
+    function addFileToFolder(folderPath) {
+        setIsCreatingFolder(false);
+        setIsFilesOpen(true);
+        setFileError('');
+        setNewFileName(`${folderPath}/`);
+        setIsCreatingFile(true);
     }
 
     function deleteActiveFile() {
@@ -257,6 +398,136 @@ const EditorPage = () => {
         reactNavigator('/');
     }
 
+    const tree = buildFileTree(
+        files.map((file) => file.name),
+        folders
+    );
+
+    const renderFileRow = (fileName, depth) => {
+        const file = files.find((item) => item.name === fileName);
+        if (!file) return null;
+        const baseName = fileName.split('/').pop();
+        return (
+            <div
+                className={`fileItem ${file.name === activeFile.name ? 'active' : ''}`}
+                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                key={file.name}
+                onClick={() => openFile(file.name)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openFile(file.name);
+                    }
+                }}
+                role="button"
+                tabIndex={0}
+            >
+                <span className="fileName">
+                    <span className="fileLabel">
+                        <LanguageIcon fileName={file.name} />
+                        <span title={file.name}>{baseName}</span>
+                    </span>
+                    <button
+                        className="deleteFileBtn"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            if (file.name === activeFile.name) {
+                                deleteActiveFile();
+                            } else if (files.length > 1) {
+                                setFiles((currentFiles) =>
+                                    currentFiles.filter((item) => item.name !== file.name)
+                                );
+                                closeTab(file.name);
+                            }
+                        }}
+                        title={`Delete ${file.name}`}
+                        aria-label={`Delete ${file.name}`}
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 6h18M9 6V4h6v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" />
+                        </svg>
+                    </button>
+                </span>
+                <small>{getLanguageForFile(file.name).label}</small>
+            </div>
+        );
+    };
+
+    const renderTree = (node, prefix, depth) => (
+        <React.Fragment key={prefix || 'root'}>
+            {Object.keys(node.folders)
+                .sort((a, b) => a.localeCompare(b))
+                .map((folderName) => {
+                    const folderPath = prefix ? `${prefix}/${folderName}` : folderName;
+                    const isCollapsed = !!collapsedFolders[folderPath];
+                    return (
+                        <React.Fragment key={folderPath}>
+                            <div
+                                className="fileItem folderItem"
+                                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                                onClick={() => toggleFolder(folderPath)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        toggleFolder(folderPath);
+                                    }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={!isCollapsed}
+                            >
+                                <span className="fileName">
+                                    <span className="fileLabel">
+                                        <svg
+                                            className={`folderChevron ${isCollapsed ? '' : 'open'}`}
+                                            viewBox="0 0 24 24"
+                                            aria-hidden="true"
+                                        >
+                                            <path d="m9 6 6 6-6 6" />
+                                        </svg>
+                                        <FolderIcon size={18} />
+                                        <span title={folderPath}>{folderName}</span>
+                                    </span>
+                                    <span className="folderActions">
+                                        <button
+                                            className="folderActionBtn"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                addFileToFolder(folderPath);
+                                            }}
+                                            title={`New file in ${folderPath}`}
+                                            aria-label={`New file in ${folderPath}`}
+                                        >
+                                            +
+                                        </button>
+                                        <button
+                                            className="folderActionBtn danger"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                deleteFolder(folderPath);
+                                            }}
+                                            title={`Delete ${folderPath}`}
+                                            aria-label={`Delete ${folderPath}`}
+                                        >
+                                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M3 6h18M9 6V4h6v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" />
+                                            </svg>
+                                        </button>
+                                    </span>
+                                </span>
+                            </div>
+                            {!isCollapsed &&
+                                renderTree(node.folders[folderName], folderPath, depth + 1)}
+                        </React.Fragment>
+                    );
+                })}
+            {node.files
+                .slice()
+                .sort((a, b) => a.localeCompare(b))
+                .map((fileName) => renderFileRow(fileName, depth))}
+        </React.Fragment>
+    );
+
     if (!location.state) {
         return <Navigate to="/" />;
     }
@@ -295,6 +566,7 @@ const EditorPage = () => {
                         <button
                             className="iconBtn"
                             onClick={() => {
+                                setIsCreatingFolder(false);
                                 setIsFilesOpen(true);
                                 setIsCreatingFile(true);
                             }}
@@ -302,6 +574,18 @@ const EditorPage = () => {
                             aria-label="Create a new file"
                         >
                             <FileIcon />
+                        </button>
+                        <button
+                            className="iconBtn"
+                            onClick={() => {
+                                setIsCreatingFile(false);
+                                setIsFilesOpen(true);
+                                setIsCreatingFolder(true);
+                            }}
+                            title="Create a new folder"
+                            aria-label="Create a new folder"
+                        >
+                            <FolderIcon size={20} />
                         </button>
                     </div>
                     {isFilesOpen && isCreatingFile && (
@@ -317,56 +601,32 @@ const EditorPage = () => {
                                 value={newFileName}
                                 onChange={(event) => setNewFileName(event.target.value)}
                                 onInput={() => setFileError('')}
-                                placeholder="example.py"
+                                placeholder="src/example.py"
                                 aria-label="New file name"
                             />
                                 {fileError && <small className="fileError">{fileError}</small>}
                         </form>
                     )}
-                    {isFilesOpen && <div className="filesList">
-                        {files.map((file) => (
-                            <div
-                                className={`fileItem ${
-                                    file.name === activeFile.name ? 'active' : ''
-                                }`}
-                                key={file.name}
-                                onClick={() => openFile(file.name)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
-                                        event.preventDefault();
-                                        openFile(file.name);
-                                    }
-                                }}
-                                role="button"
-                                tabIndex={0}
-                            >
-                                <span className="fileName">
-                                    <span className="fileLabel"><LanguageIcon fileName={file.name} /><span>{file.name}</span></span>
-                                    <button
-                                        className="deleteFileBtn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            if (file.name === activeFile.name) {
-                                                deleteActiveFile();
-                                            } else if (files.length > 1) {
-                                                setFiles((currentFiles) =>
-                                                    currentFiles.filter((item) => item.name !== file.name)
-                                                );
-                                                closeTab(file.name);
-                                            }
-                                        }}
-                                        title={`Delete ${file.name}`}
-                                        aria-label={`Delete ${file.name}`}
-                                    >
-                                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                                            <path d="M3 6h18M9 6V4h6v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" />
-                                        </svg>
-                                    </button>
-                                </span>
-                                <small>{getLanguageForFile(file.name).label}</small>
-                            </div>
-                        ))}
-                    </div>}
+                    {isFilesOpen && isCreatingFolder && (
+                        <form
+                            className="newFileForm"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                createFolder();
+                            }}
+                        >
+                            <input
+                                autoFocus
+                                value={newFolderName}
+                                onChange={(event) => setNewFolderName(event.target.value)}
+                                onInput={() => setFolderError('')}
+                                placeholder="components/nested"
+                                aria-label="New folder name"
+                            />
+                            {folderError && <small className="fileError">{folderError}</small>}
+                        </form>
+                    )}
+                    {isFilesOpen && <div className="filesList">{renderTree(tree, '', 0)}</div>}
                 </div>
                 <button className="btn copyBtn" onClick={copyRoomId}>
                     Copy ROOM ID
@@ -393,7 +653,7 @@ const EditorPage = () => {
                             <div className={`fileTab ${fileName === activeFile.name ? 'active' : ''}`} key={fileName}>
                                 <button className="fileTabButton" onClick={() => setActiveFileName(fileName)}>
                                     <LanguageIcon fileName={fileName} />
-                                    <span className="tabFileName">{fileName}</span>
+                                    <span className="tabFileName" title={fileName}>{fileName.split('/').pop()}</span>
                                     {file.content !== file.savedContent && <span className="dirtyDot" aria-label="Unsaved changes" />}
                                 </button>
                                 {openFileNames.length > 1 && (
@@ -429,6 +689,7 @@ const EditorPage = () => {
                 <CodeRunner
                     code={activeFile.content}
                     fileName={activeFile.name}
+                    files={files}
                     language={language}
                     style={{ height: outputHeight }}
                 />
