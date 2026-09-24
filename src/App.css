@@ -525,6 +525,91 @@ body.isResizing {
     visibility: hidden;
 }
 
+.previewFrame {
+    box-sizing: border-box;
+    width: 100%;
+    height: calc(100% - 64px);
+    min-height: 240px;
+    border: 1px solid #424242;
+    border-radius: 3px;
+    background: #fff;
+}
+
+.folderItem {
+    flex-direction: row;
+    align-items: center;
+}
+
+.folderItem .fileName {
+    align-items: center;
+}
+
+.folderChevron {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: #a5a5a5;
+    transition: transform 0.15s ease;
+}
+
+.folderChevron.open {
+    transform: rotate(90deg);
+}
+
+.folderIcon {
+    flex: 0 0 auto;
+    color: #f4c95d;
+}
+
+.folderActions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.folderActionBtn {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: #4aed88;
+    background: transparent;
+    font: 700 14px/1 Arial, sans-serif;
+    cursor: pointer;
+    visibility: hidden;
+}
+
+.folderItem:hover .folderActionBtn,
+.folderItem:focus-within .folderActionBtn {
+    visibility: visible;
+}
+
+.folderActionBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.folderActionBtn.danger {
+    color: #ff7b7b;
+}
+
+.folderActionBtn svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
 @media (max-width: 700px) {
     .mainWrap {
         height: auto;
