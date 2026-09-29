@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import ACTIONS from '../Actions.json';
 import Client from '../components/Client';
-import Editor from '../components/Editor';
+import MonacoEditor from '../components/MonacoEditor';
 import CodeRunner from '../components/CodeRunner';
 import { getLanguageForFile } from '../languages';
 import {
@@ -14,31 +14,47 @@ import {
     buildFileTree,
 } from '../fileTree';
 import { initSocket } from '../socket';
-import {
-    useLocation,
-    useNavigate,
-    Navigate,
-    useParams,
-} from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
-const FileIcon = () => (
-    <img className="fileIconImage" src="/new-file.svg" alt="" aria-hidden="true" />
+// --- VS Code style icons ----------------------------------------------------
+const FilesIcon = ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+    </svg>
 );
 
-const FolderIcon = ({ size = 21 }) => (
-    <svg
-        className="folderIcon"
-        viewBox="0 0 24 24"
-        width={size}
-        height={size}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-    >
+const NewFileIcon = ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6M12 18v-6M9 15h6" />
+    </svg>
+);
+
+const NewFolderIcon = ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+        <path d="M12 11v6M9 14h6" />
+    </svg>
+);
+
+const FolderIcon = ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+);
+
+const SignOutIcon = ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path d="m16 17 5-5-5-5M21 12H9" />
+    </svg>
+);
+
+const ChevronIcon = ({ open }) => (
+    <svg className={`vs-chevron${open ? ' open' : ''}`} viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m9 6 6 6-6 6" />
     </svg>
 );
 
@@ -53,20 +69,35 @@ const LanguageIcon = ({ fileName }) => {
         sql: 'database',
     };
     const assetName = languageAssets[extension];
-    return <span className={`languageIcon language-${extension || 'file'}`} title={getLanguageForFile(fileName).label}>
-        {assetName ? (
-            <img src={`https://cdn.jsdelivr.net/gh/devicons/devicon/icons/${assetName}/${assetName}-original.svg`} alt="" aria-hidden="true" />
-        ) : <span className="languageFallback">FILE</span>}
-    </span>;
+    return (
+        <span className="vs-lang-icon" title={getLanguageForFile(fileName).label}>
+            {assetName ? (
+                <img src={`https://cdn.jsdelivr.net/gh/devicons/devicon/icons/${assetName}/${assetName}-original.svg`} alt="" aria-hidden="true" />
+            ) : (
+                <span className="vs-lang-fallback">≡</span>
+            )}
+        </span>
+    );
 };
 
+// --- Page -------------------------------------------------------------------
 const EditorPage = () => {
     const socketRef = useRef(null);
+    const editorApiRef = useRef(null);
+    const joinRef = useRef(null);
+    const gateOpenRef = useRef(false);
     const codeRef = useRef(null);
     const location = useLocation();
     const { roomId } = useParams();
     const reactNavigator = useNavigate();
+    const { user, logout } = useAuth();
+
     const [clients, setClients] = useState([]);
+    const [cursor, setCursor] = useState({ lineNumber: 1, column: 1 });
+    const [needsPassword, setNeedsPassword] = useState(false);
+    const [roomPasswordInput, setRoomPasswordInput] = useState('');
+    const [gateError, setGateError] = useState('');
+
     const storageKey = `realtime-editor-${roomId}`;
     const [files, setFiles] = useState(() => {
         try {
@@ -114,13 +145,12 @@ const EditorPage = () => {
             return [];
         }
     });
-    const [isFilesOpen, setIsFilesOpen] = useState(true);
-    const [sidebarWidth, setSidebarWidth] = useState(230);
-    const [outputHeight, setOutputHeight] = useState(260);
+    const [sidebarWidth, setSidebarWidth] = useState(260);
     const resizingRef = useRef(null);
-    const activeFile =
-        files.find((file) => file.name === activeFileName) || files[0];
+
+    const activeFile = files.find((file) => file.name === activeFileName) || files[0];
     const language = getLanguageForFile(activeFile.name);
+    const breadcrumbs = activeFile.name.split('/');
 
     useEffect(() => {
         localStorage.setItem(
@@ -150,10 +180,7 @@ const EditorPage = () => {
     useEffect(() => {
         const resize = (event) => {
             if (resizingRef.current === 'sidebar') {
-                setSidebarWidth(Math.min(420, Math.max(180, event.clientX)));
-            }
-            if (resizingRef.current === 'output') {
-                setOutputHeight(Math.min(520, Math.max(150, window.innerHeight - event.clientY)));
+                setSidebarWidth(Math.min(480, Math.max(200, event.clientX - 48)));
             }
         };
         const stopResize = () => {
@@ -168,13 +195,14 @@ const EditorPage = () => {
         };
     }, []);
 
-    function updateActiveFile(code) {
+    function handleLocalCodeChange(code) {
         codeRef.current = code;
         setFiles((currentFiles) =>
             currentFiles.map((file) =>
                 file.name === activeFile.name ? { ...file, content: code } : file
             )
         );
+        socketRef.current?.emit(ACTIONS.CODE_CHANGE, { roomId, code });
     }
 
     function openFile(name) {
@@ -269,9 +297,7 @@ const EditorPage = () => {
     }
 
     function deleteFolder(folderPath) {
-        const insideFiles = files.filter((file) =>
-            isUnderFolder(file.name, folderPath)
-        );
+        const insideFiles = files.filter((file) => isUnderFolder(file.name, folderPath));
         const message = insideFiles.length
             ? `Delete folder "${folderPath}" and ${insideFiles.length} file(s) inside it?`
             : `Delete folder "${folderPath}"?`;
@@ -281,20 +307,14 @@ const EditorPage = () => {
             return;
         }
 
-        const remainingFiles = files.filter(
-            (file) => !isUnderFolder(file.name, folderPath)
-        );
+        const remainingFiles = files.filter((file) => !isUnderFolder(file.name, folderPath));
         const remainingFolders = folders.filter(
             (folder) => folder !== folderPath && !isUnderFolder(folder, folderPath)
         );
-        const remainingOpenFiles = openFileNames.filter(
-            (name) => !isUnderFolder(name, folderPath)
-        );
+        const remainingOpenFiles = openFileNames.filter((name) => !isUnderFolder(name, folderPath));
         setFiles(remainingFiles);
         setFolders(remainingFolders);
-        setOpenFileNames(
-            remainingOpenFiles.length ? remainingOpenFiles : [remainingFiles[0].name]
-        );
+        setOpenFileNames(remainingOpenFiles.length ? remainingOpenFiles : [remainingFiles[0].name]);
         if (isUnderFolder(activeFile.name, folderPath)) {
             setActiveFileName(remainingFiles[0].name);
         }
@@ -310,78 +330,103 @@ const EditorPage = () => {
 
     function addFileToFolder(folderPath) {
         setIsCreatingFolder(false);
-        setIsFilesOpen(true);
         setFileError('');
         setNewFileName(`${folderPath}/`);
         setIsCreatingFile(true);
     }
 
-    function deleteActiveFile() {
+    function deleteFile(fileName) {
         if (files.length === 1) {
             toast.error('A room must have at least one file.');
             return;
         }
-
-        const remainingFiles = files.filter(
-            (file) => file.name !== activeFile.name
-        );
+        const remainingFiles = files.filter((file) => file.name !== fileName);
         setFiles(remainingFiles);
-        closeTab(activeFile.name);
-        setActiveFileName(remainingFiles[0].name);
+        closeTab(fileName);
+        if (fileName === activeFile.name) {
+            setActiveFileName(remainingFiles[0].name);
+        }
     }
 
     useEffect(() => {
+        let cancelled = false;
         const init = async () => {
-            socketRef.current = await initSocket();
-            socketRef.current.on('connect_error', (err) => handleErrors(err));
-            socketRef.current.on('connect_failed', (err) => handleErrors(err));
+            const socket = await initSocket();
+            if (cancelled) {
+                socket.disconnect();
+                return;
+            }
+            socketRef.current = socket;
 
-            function handleErrors(e) {
-                console.log('socket error', e);
+            const handleErrors = (err) => {
+                if (err && err.message === 'unauthorized') {
+                    toast.error('Your session expired. Please sign in again.');
+                    logout();
+                    reactNavigator('/login');
+                    return;
+                }
+                console.log('socket error', err);
                 toast.error('Socket connection failed, try again later.');
                 reactNavigator('/');
-            }
+            };
+            socket.on('connect_error', handleErrors);
+            socket.on('connect_failed', handleErrors);
 
-            socketRef.current.emit(ACTIONS.JOIN, {
-                roomId,
-                username: location.state?.username,
+            const doJoin = (password) => {
+                socket.emit(ACTIONS.JOIN, { roomId, password });
+            };
+            joinRef.current = doJoin;
+            doJoin(location.state?.password);
+
+            socket.on(ACTIONS.JOIN_DENIED, ({ reason }) => {
+                if (reason === 'wrong-password') {
+                    const wasOpen = gateOpenRef.current;
+                    gateOpenRef.current = true;
+                    setNeedsPassword(true);
+                    if (wasOpen) setGateError('Incorrect password, try again.');
+                } else {
+                    toast.error('Room not found. Ask the host for a new invite.');
+                    reactNavigator('/');
+                }
             });
 
-            // Listening for joined event
-            socketRef.current.on(
-                ACTIONS.JOINED,
-                ({ clients, username, socketId }) => {
-                    if (username !== location.state?.username) {
-                        toast.success(`${username} joined the room.`);
-                        console.log(`${username} joined`);
-                    }
-                    setClients(clients);
-                    socketRef.current.emit(ACTIONS.SYNC_CODE, {
-                        code: codeRef.current,
-                        socketId,
-                    });
+            socket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
+                if (username !== user.name) {
+                    toast.success(`${username} joined the room.`);
                 }
-            );
+                setClients(clients);
+                gateOpenRef.current = false;
+                setNeedsPassword(false);
+                setGateError('');
+                socket.emit(ACTIONS.SYNC_CODE, {
+                    code: codeRef.current,
+                    socketId,
+                });
+            });
 
-            // Listening for disconnected
-            socketRef.current.on(
-                ACTIONS.DISCONNECTED,
-                ({ socketId, username }) => {
-                    toast.success(`${username} left the room.`);
-                    setClients((prev) => {
-                        return prev.filter(
-                            (client) => client.socketId !== socketId
-                        );
-                    });
-                }
-            );
+            socket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
+                toast.success(`${username} left the room.`);
+                setClients((prev) => prev.filter((client) => client.socketId !== socketId));
+            });
+
+            socket.on(ACTIONS.CODE_CHANGE, ({ code }) => {
+                editorApiRef.current?.applyRemoteCode(code);
+            });
         };
         init();
         return () => {
-            socketRef.current.disconnect();
-            socketRef.current.off(ACTIONS.JOINED);
-            socketRef.current.off(ACTIONS.DISCONNECTED);
+            cancelled = true;
+            const socket = socketRef.current;
+            if (socket) {
+                socket.off(ACTIONS.JOINED);
+                socket.off(ACTIONS.DISCONNECTED);
+                socket.off(ACTIONS.CODE_CHANGE);
+                socket.off(ACTIONS.JOIN_DENIED);
+                socket.disconnect();
+                socketRef.current = null;
+            }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     async function copyRoomId() {
@@ -394,8 +439,16 @@ const EditorPage = () => {
         }
     }
 
-    function leaveRoom() {
-        reactNavigator('/');
+    function handleLogout() {
+        logout();
+        reactNavigator('/login');
+    }
+
+    function submitRoomPassword(e) {
+        e.preventDefault();
+        if (!roomPasswordInput) return;
+        setGateError('');
+        joinRef.current?.(roomPasswordInput);
     }
 
     const tree = buildFileTree(
@@ -409,46 +462,35 @@ const EditorPage = () => {
         const baseName = fileName.split('/').pop();
         return (
             <div
-                className={`fileItem ${file.name === activeFile.name ? 'active' : ''}`}
-                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                className={`vs-tree-row${file.name === activeFile.name ? ' active' : ''}`}
+                style={{ paddingLeft: `${8 + depth * 14}px` }}
                 key={file.name}
                 onClick={() => openFile(file.name)}
+                role="button"
+                tabIndex={0}
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         openFile(file.name);
                     }
                 }}
-                role="button"
-                tabIndex={0}
             >
-                <span className="fileName">
-                    <span className="fileLabel">
-                        <LanguageIcon fileName={file.name} />
-                        <span title={file.name}>{baseName}</span>
-                    </span>
-                    <button
-                        className="deleteFileBtn"
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            if (file.name === activeFile.name) {
-                                deleteActiveFile();
-                            } else if (files.length > 1) {
-                                setFiles((currentFiles) =>
-                                    currentFiles.filter((item) => item.name !== file.name)
-                                );
-                                closeTab(file.name);
-                            }
-                        }}
-                        title={`Delete ${file.name}`}
-                        aria-label={`Delete ${file.name}`}
-                    >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M3 6h18M9 6V4h6v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" />
-                        </svg>
-                    </button>
+                <LanguageIcon fileName={file.name} />
+                <span className="vs-tree-label" title={file.name}>
+                    {baseName}
                 </span>
-                <small>{getLanguageForFile(file.name).label}</small>
+                {file.content !== file.savedContent && <span className="vs-dirty-dot" />}
+                <button
+                    className="vs-row-delete"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        deleteFile(file.name);
+                    }}
+                    title={`Delete ${file.name}`}
+                    aria-label={`Delete ${file.name}`}
+                >
+                    ×
+                </button>
             </div>
         );
     };
@@ -463,61 +505,49 @@ const EditorPage = () => {
                     return (
                         <React.Fragment key={folderPath}>
                             <div
-                                className="fileItem folderItem"
-                                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                                className="vs-tree-row vs-folder-row"
+                                style={{ paddingLeft: `${8 + depth * 14}px` }}
                                 onClick={() => toggleFolder(folderPath)}
+                                role="button"
+                                tabIndex={0}
                                 onKeyDown={(event) => {
                                     if (event.key === 'Enter' || event.key === ' ') {
                                         event.preventDefault();
                                         toggleFolder(folderPath);
                                     }
                                 }}
-                                role="button"
-                                tabIndex={0}
                                 aria-expanded={!isCollapsed}
                             >
-                                <span className="fileName">
-                                    <span className="fileLabel">
-                                        <svg
-                                            className={`folderChevron ${isCollapsed ? '' : 'open'}`}
-                                            viewBox="0 0 24 24"
-                                            aria-hidden="true"
-                                        >
-                                            <path d="m9 6 6 6-6 6" />
-                                        </svg>
-                                        <FolderIcon size={18} />
-                                        <span title={folderPath}>{folderName}</span>
-                                    </span>
-                                    <span className="folderActions">
-                                        <button
-                                            className="folderActionBtn"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                addFileToFolder(folderPath);
-                                            }}
-                                            title={`New file in ${folderPath}`}
-                                            aria-label={`New file in ${folderPath}`}
-                                        >
-                                            +
-                                        </button>
-                                        <button
-                                            className="folderActionBtn danger"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                deleteFolder(folderPath);
-                                            }}
-                                            title={`Delete ${folderPath}`}
-                                            aria-label={`Delete ${folderPath}`}
-                                        >
-                                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                                <path d="M3 6h18M9 6V4h6v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" />
-                                            </svg>
-                                        </button>
-                                    </span>
+                                <ChevronIcon open={!isCollapsed} />
+                                <FolderIcon size={15} />
+                                <span className="vs-tree-label" title={folderPath}>
+                                    {folderName}
+                                </span>
+                                <span className="vs-folder-actions">
+                                    <button
+                                        title={`New file in ${folderPath}`}
+                                        aria-label={`New file in ${folderPath}`}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            addFileToFolder(folderPath);
+                                        }}
+                                    >
+                                        +
+                                    </button>
+                                    <button
+                                        className="danger"
+                                        title={`Delete ${folderPath}`}
+                                        aria-label={`Delete ${folderPath}`}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            deleteFolder(folderPath);
+                                        }}
+                                    >
+                                        ×
+                                    </button>
                                 </span>
                             </div>
-                            {!isCollapsed &&
-                                renderTree(node.folders[folderName], folderPath, depth + 1)}
+                            {!isCollapsed && renderTree(node.folders[folderName], folderPath, depth + 1)}
                         </React.Fragment>
                     );
                 })}
@@ -528,172 +558,250 @@ const EditorPage = () => {
         </React.Fragment>
     );
 
-    if (!location.state) {
-        return <Navigate to="/" />;
-    }
-
     return (
-        <div className="mainWrap" style={{ gridTemplateColumns: `${sidebarWidth}px 6px minmax(0, 1fr)` }}>
-            <div className="aside">
-                <div className="asideInner">
-                    <div className="logo">
-                        <img
-                            className="logoImage"
-                            src="/code-sync.png"
-                            alt="logo"
-                        />
-                    </div>
-                    <h3>Connected</h3>
-                    <div className="clientsList">
-                        {clients.map((client) => (
-                            <Client
-                                key={client.socketId}
-                                username={client.username}
-                            />
-                        ))}
-                    </div>
-                    <div className="filesHeader">
-                        <button
-                            className="filesToggle"
-                            onClick={() => setIsFilesOpen((isOpen) => !isOpen)}
-                            title={isFilesOpen ? 'Collapse files' : 'Expand files'}
-                            aria-label={isFilesOpen ? 'Collapse files' : 'Expand files'}
-                            aria-expanded={isFilesOpen}
-                        >
-                            <FileIcon />
-                            <svg className="chevronIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-                        </button>
-                        <button
-                            className="iconBtn"
-                            onClick={() => {
-                                setIsCreatingFolder(false);
-                                setIsFilesOpen(true);
-                                setIsCreatingFile(true);
-                            }}
-                            title="Create a new file"
-                            aria-label="Create a new file"
-                        >
-                            <FileIcon />
-                        </button>
-                        <button
-                            className="iconBtn"
-                            onClick={() => {
-                                setIsCreatingFile(false);
-                                setIsFilesOpen(true);
-                                setIsCreatingFolder(true);
-                            }}
-                            title="Create a new folder"
-                            aria-label="Create a new folder"
-                        >
-                            <FolderIcon size={20} />
-                        </button>
-                    </div>
-                    {isFilesOpen && isCreatingFile && (
-                        <form
-                            className="newFileForm"
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                createFile();
-                            }}
-                        >
-                            <input
-                                autoFocus
-                                value={newFileName}
-                                onChange={(event) => setNewFileName(event.target.value)}
-                                onInput={() => setFileError('')}
-                                placeholder="src/example.py"
-                                aria-label="New file name"
-                            />
-                                {fileError && <small className="fileError">{fileError}</small>}
-                        </form>
-                    )}
-                    {isFilesOpen && isCreatingFolder && (
-                        <form
-                            className="newFileForm"
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                createFolder();
-                            }}
-                        >
-                            <input
-                                autoFocus
-                                value={newFolderName}
-                                onChange={(event) => setNewFolderName(event.target.value)}
-                                onInput={() => setFolderError('')}
-                                placeholder="components/nested"
-                                aria-label="New folder name"
-                            />
-                            {folderError && <small className="fileError">{folderError}</small>}
-                        </form>
-                    )}
-                    {isFilesOpen && <div className="filesList">{renderTree(tree, '', 0)}</div>}
+        <div className="vscode">
+            {/* Title bar */}
+            <header className="vs-titlebar">
+                <div className="vs-titlebar-left">
+                    <img src="/code-sync.png" alt="" />
+                    <span>Code Sync</span>
                 </div>
-                <button className="btn copyBtn" onClick={copyRoomId}>
-                    Copy ROOM ID
-                </button>
-                <button className="btn leaveBtn" onClick={leaveRoom}>
-                    Leave
-                </button>
-            </div>
-            <div
-                className="sidebarResizeHandle"
-                role="separator"
-                aria-label="Resize sidebar"
-                onMouseDown={() => {
-                    resizingRef.current = 'sidebar';
-                    document.body.classList.add('isResizing');
-                }}
-            />
-            <div className="editorWrap">
-                <nav className="fileTabs" aria-label="Open files">
-                    {openFileNames.map((fileName) => {
-                        const file = files.find((item) => item.name === fileName);
-                        if (!file) return null;
-                        return (
-                            <div className={`fileTab ${fileName === activeFile.name ? 'active' : ''}`} key={fileName}>
-                                <button className="fileTabButton" onClick={() => setActiveFileName(fileName)}>
-                                    <LanguageIcon fileName={fileName} />
-                                    <span className="tabFileName" title={fileName}>{fileName.split('/').pop()}</span>
-                                    {file.content !== file.savedContent && <span className="dirtyDot" aria-label="Unsaved changes" />}
-                                </button>
-                                {openFileNames.length > 1 && (
-                                    <button className="closeTabButton" onClick={() => closeTab(fileName)} aria-label={`Close ${fileName}`}>
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
-                                    </button>
-                                )}
-                            </div>
-                        );
-                    })}
+                <div className="vs-titlebar-center">
+                    <button className="vs-room-chip" onClick={copyRoomId} title="Click to copy room ID">
+                        {roomId.slice(0, 8)}… — click to copy invite ID
+                    </button>
+                </div>
+                <div className="vs-titlebar-right">
+                    <span className="vs-avatar">{user.name.charAt(0).toUpperCase()}</span>
+                    <span className="vs-username">{user.name}</span>
+                </div>
+            </header>
+
+            <div className="vs-workbench">
+                {/* Activity bar */}
+                <nav className="vs-activitybar" aria-label="Activity bar">
+                    <button className="vs-activity-btn active" title="Explorer">
+                        <FilesIcon />
+                    </button>
+                    <div className="vs-activity-spacer" />
+                    <button className="vs-activity-btn" title="Sign out" onClick={handleLogout}>
+                        <SignOutIcon />
+                    </button>
                 </nav>
-                <div className="editorMount" key={activeFile.name}>
-                    <Editor
-                        socketRef={socketRef}
-                        roomId={roomId}
-                        initialCode={activeFile.content}
-                        language={language}
-                        onCodeChange={updateActiveFile}
-                    />
-                </div>
-                <div className="fileActions">
-                    <span>{activeFile.name} · {language.label}</span>
-                </div>
+
+                {/* Side bar */}
+                <aside className="vs-sidebar" style={{ width: sidebarWidth }}>
+                    <div className="vs-sidebar-section">
+                        <div className="vs-sidebar-heading">
+                            <span>EXPLORER</span>
+                            <span className="vs-sidebar-actions">
+                                <button
+                                    title="New file"
+                                    aria-label="New file"
+                                    onClick={() => {
+                                        setIsCreatingFolder(false);
+                                        setFileError('');
+                                        setNewFileName('');
+                                        setIsCreatingFile((v) => !v);
+                                    }}
+                                >
+                                    <NewFileIcon />
+                                </button>
+                                <button
+                                    title="New folder"
+                                    aria-label="New folder"
+                                    onClick={() => {
+                                        setIsCreatingFile(false);
+                                        setFolderError('');
+                                        setNewFolderName('');
+                                        setIsCreatingFolder((v) => !v);
+                                    }}
+                                >
+                                    <NewFolderIcon />
+                                </button>
+                            </span>
+                        </div>
+                        {isCreatingFile && (
+                            <form
+                                className="vs-new-row-form"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    createFile();
+                                }}
+                            >
+                                <input
+                                    autoFocus
+                                    value={newFileName}
+                                    onChange={(event) => setNewFileName(event.target.value)}
+                                    onInput={() => setFileError('')}
+                                    placeholder="src/example.py"
+                                    aria-label="New file name"
+                                />
+                                {fileError && <small className="vs-form-error">{fileError}</small>}
+                            </form>
+                        )}
+                        {isCreatingFolder && (
+                            <form
+                                className="vs-new-row-form"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    createFolder();
+                                }}
+                            >
+                                <input
+                                    autoFocus
+                                    value={newFolderName}
+                                    onChange={(event) => setNewFolderName(event.target.value)}
+                                    onInput={() => setFolderError('')}
+                                    placeholder="components/nested"
+                                    aria-label="New folder name"
+                                />
+                                {folderError && <small className="vs-form-error">{folderError}</small>}
+                            </form>
+                        )}
+                        <div className="vs-explorer">{renderTree(tree, '', 0)}</div>
+                    </div>
+                    <div className="vs-sidebar-section">
+                        <div className="vs-sidebar-heading">
+                            <span>CONNECTED — {clients.length}</span>
+                        </div>
+                        <div className="vs-clients">
+                            {clients.map((client) => (
+                                <Client key={client.socketId} username={client.username} />
+                            ))}
+                        </div>
+                    </div>
+                </aside>
                 <div
-                    className="outputResizeHandle"
+                    className="vs-sash"
                     role="separator"
-                    aria-label="Resize output panel"
+                    aria-label="Resize sidebar"
                     onMouseDown={() => {
-                        resizingRef.current = 'output';
+                        resizingRef.current = 'sidebar';
                         document.body.classList.add('isResizing');
                     }}
                 />
-                <CodeRunner
-                    code={activeFile.content}
-                    fileName={activeFile.name}
-                    files={files}
-                    language={language}
-                    style={{ height: outputHeight }}
-                />
+
+                {/* Main column */}
+                <div className="vs-main">
+                    <nav className="vs-tabs" aria-label="Open files">
+                        {openFileNames.map((fileName) => {
+                            const file = files.find((item) => item.name === fileName);
+                            if (!file) return null;
+                            const dirty = file.content !== file.savedContent;
+                            return (
+                                <div
+                                    className={`vs-tab${fileName === activeFile.name ? ' active' : ''}`}
+                                    key={fileName}
+                                >
+                                    <button
+                                        className="vs-tab-label"
+                                        onClick={() => setActiveFileName(fileName)}
+                                        title={fileName}
+                                    >
+                                        <LanguageIcon fileName={fileName} />
+                                        <span>{fileName.split('/').pop()}</span>
+                                        {dirty ? (
+                                            <span className="vs-dirty-dot" title="Unsaved changes" />
+                                        ) : (
+                                            <span className="vs-tab-x-space" />
+                                        )}
+                                    </button>
+                                    {openFileNames.length > 1 && (
+                                        <button
+                                            className="vs-tab-close"
+                                            onClick={() => closeTab(fileName)}
+                                            aria-label={`Close ${fileName}`}
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </nav>
+
+                    <div className="vs-breadcrumbs" aria-label="Breadcrumb">
+                        {breadcrumbs.map((segment, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && <span className="vs-crumb-sep">›</span>}
+                                <span className={i === breadcrumbs.length - 1 ? 'vs-crumb current' : 'vs-crumb'}>
+                                    {segment}
+                                </span>
+                            </React.Fragment>
+                        ))}
+                    </div>
+
+                    <div className="vs-editor">
+                        {needsPassword ? (
+                            <div className="vs-gate">
+                                <form className="vs-gate-card" onSubmit={submitRoomPassword}>
+                                    <h2>🔒 Password protected room</h2>
+                                    <p>Enter the room password to join the session.</p>
+                                    <input
+                                        type="password"
+                                        autoFocus
+                                        value={roomPasswordInput}
+                                        onChange={(e) => setRoomPasswordInput(e.target.value)}
+                                        placeholder="Room password"
+                                        aria-label="Room password"
+                                    />
+                                    {gateError && <div className="vs-gate-error">{gateError}</div>}
+                                    <div className="vs-gate-actions">
+                                        <button
+                                            type="button"
+                                            className="vscode-btn-ghost"
+                                            onClick={() => reactNavigator('/')}
+                                        >
+                                            Back
+                                        </button>
+                                        <button type="submit" className="vscode-btn-primary">
+                                            Join room
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        ) : (
+                            <MonacoEditor
+                                key={activeFile.name}
+                                fileName={activeFile.name}
+                                initialCode={activeFile.content}
+                                language={language}
+                                onCodeChange={handleLocalCodeChange}
+                                onCursorChange={setCursor}
+                                editorApiRef={editorApiRef}
+                            />
+                        )}
+                    </div>
+
+                    <div className="vs-panel">
+                        <CodeRunner
+                            code={activeFile.content}
+                            fileName={activeFile.name}
+                            files={files}
+                            language={language}
+                        />
+                    </div>
+                </div>
             </div>
+
+            {/* Status bar */}
+            <footer className="vs-statusbar">
+                <div className="vs-status-left">
+                    <button className="vs-status-item" onClick={copyRoomId} title="Copy room ID">
+                        ⛓&nbsp;{roomId.slice(0, 8)}…
+                    </button>
+                    <span className="vs-status-item">👥 {clients.length} connected</span>
+                </div>
+                <div className="vs-status-right">
+                    <span className="vs-status-item">
+                        Ln {cursor.lineNumber}, Col {cursor.column}
+                    </span>
+                    <span className="vs-status-item">Spaces: 2</span>
+                    <span className="vs-status-item">UTF-8</span>
+                    <span className="vs-status-item">{language.label}</span>
+                </div>
+            </footer>
         </div>
     );
 };

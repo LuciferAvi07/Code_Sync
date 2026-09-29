@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { API_BASE } from '../api';
 import { buildPreviewDocument } from '../preview';
 
 const CodeRunner = ({ code, fileName, language, files = [], style }) => {
@@ -37,9 +38,12 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
                 : code;
 
         try {
-            const response = await fetch('/api/execute', {
+            const response = await fetch(`${API_BASE}/api/execute`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${localStorage.getItem('code-sync-token') || ''}`,
+                },
                 body: JSON.stringify({
                     sourceCode,
                     languageId: language.judge0Id,
@@ -59,9 +63,11 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
     return (
         <section className="runnerPanel" style={style}>
             <div className="runnerHeader">
-                <h3>{isPreview ? 'Preview' : 'Output'}</h3>
+                <div className="panelTabs">
+                    <span className="panelTab active">{isPreview ? 'PREVIEW' : 'OUTPUT'}</span>
+                </div>
                 <button className="btn runBtn" onClick={runCode} disabled={isRunning}>
-                    {isRunning ? 'Running...' : 'Run Code'}
+                    {isRunning ? 'Running...' : '▷ Run Code'}
                 </button>
             </div>
             {!isPreview && (

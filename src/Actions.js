@@ -1,10 +1,9 @@
-const ACTIONS = {
-    JOIN: 'join',
-    JOINED: 'joined',
-    DISCONNECTED: 'disconnected',
-    CODE_CHANGE: 'code-change',
-    SYNC_CODE: 'sync-code',
-    LEAVE: 'leave',
+export default {
+  CODE_CHANGE: "code-change",
+  DISCONNECTED: "disconnected",
+  JOIN: "join",
+  JOINED: "joined",
+  JOIN_DENIED: "join-denied",
+  LEAVE: "leave",
+  SYNC_CODE: "sync-code",
 };
-
-module.exports = ACTIONS;

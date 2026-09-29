@@ -23,3 +23,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# local sqlite database (users + rooms) — never commit
+/server/data.sqlite
+/server/data.sqlite-wal
+/server/data.sqlite-shm
