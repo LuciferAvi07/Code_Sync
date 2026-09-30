@@ -51,6 +51,11 @@ const MonacoEditor = ({
 
         if (editorApiRef) {
             editorApiRef.current = {
+                // Applies code received from another user. This only touches
+                // the local editor view: it must NOT call onCodeChange, or the
+                // remote edit would be re-broadcast to the room and ping-pong
+                // back to its author (an echo storm that garbles both files).
+                // EditorPage updates its own file state for the matching path.
                 applyRemoteCode(code) {
                     const ed = editorRef.current;
                     if (!ed || code === null || code === undefined) return;
@@ -66,7 +71,6 @@ const MonacoEditor = ({
                     } finally {
                         suppressLocalRef.current = false;
                     }
-                    onCodeChangeRef.current(code);
                 },
                 focus() {
                     editorRef.current?.focus();

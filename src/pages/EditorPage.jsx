@@ -86,7 +86,6 @@ const EditorPage = () => {
     const editorApiRef = useRef(null);
     const joinRef = useRef(null);
     const gateOpenRef = useRef(false);
-    const codeRef = useRef(null);
     const location = useLocation();
     const { roomId } = useParams();
     const reactNavigator = useNavigate();
@@ -152,6 +151,24 @@ const EditorPage = () => {
     const language = getLanguageForFile(activeFile.name);
     const breadcrumbs = activeFile.name.split('/');
 
+    // Mirror of the active file path for use inside socket callbacks, which
+    // are registered once and would otherwise see a stale closure value.
+    const activeFileNameRef = useRef(activeFileName);
+    useEffect(() => {
+        activeFileNameRef.current = activeFileName;
+    }, [activeFileName]);
+
+    // If the active file disappears (deleted by us or by another user),
+    // fall back to another open file so the editor never points at nothing.
+    useEffect(() => {
+        if (!files.length || files.some((file) => file.name === activeFileName)) return;
+        const fallback =
+            openFileNames.find((name) => files.some((file) => file.name === name)) ||
+            files[0].name;
+        setActiveFileName(fallback);
+        setOpenFileNames((current) => (current.includes(fallback) ? current : [...current, fallback]));
+    }, [files, activeFileName, openFileNames]);
+
     useEffect(() => {
         localStorage.setItem(
             storageKey,
@@ -195,14 +212,16 @@ const EditorPage = () => {
         };
     }, []);
 
+    // Local keystroke: update our own state and broadcast the change tagged
+    // with the file path, so receivers apply it to the right file.
     function handleLocalCodeChange(code) {
-        codeRef.current = code;
+        const path = activeFileNameRef.current;
         setFiles((currentFiles) =>
             currentFiles.map((file) =>
-                file.name === activeFile.name ? { ...file, content: code } : file
+                file.name === path ? { ...file, content: code } : file
             )
         );
-        socketRef.current?.emit(ACTIONS.CODE_CHANGE, { roomId, code });
+        socketRef.current?.emit(ACTIONS.CODE_CHANGE, { roomId, path, code });
     }
 
     function openFile(name) {
@@ -257,6 +276,8 @@ const EditorPage = () => {
             ...currentFolders,
             ...neededFolders.filter((folder) => !currentFolders.includes(folder)),
         ]);
+        // Tell the room: the server stores it and forwards it to everyone else.
+        socketRef.current?.emit(ACTIONS.FILE_CREATED, { roomId, path: name, content: '' });
         openFile(newFile.name);
         setNewFileName('');
         setFileError('');
@@ -291,6 +312,7 @@ const EditorPage = () => {
             ...currentFolders,
             ...neededFolders.filter((folder) => !currentFolders.includes(folder)),
         ]);
+        socketRef.current?.emit(ACTIONS.FOLDER_CREATED, { roomId, path });
         setNewFolderName('');
         setFolderError('');
         setIsCreatingFolder(false);
@@ -318,6 +340,7 @@ const EditorPage = () => {
         if (isUnderFolder(activeFile.name, folderPath)) {
             setActiveFileName(remainingFiles[0].name);
         }
+        socketRef.current?.emit(ACTIONS.FOLDER_DELETED, { roomId, path: folderPath });
         toast.success(`Folder "${folderPath}" deleted.`);
     }
 
@@ -346,6 +369,7 @@ const EditorPage = () => {
         if (fileName === activeFile.name) {
             setActiveFileName(remainingFiles[0].name);
         }
+        socketRef.current?.emit(ACTIONS.FILE_DELETED, { roomId, path: fileName });
     }
 
     useEffect(() => {
@@ -390,7 +414,7 @@ const EditorPage = () => {
                 }
             });
 
-            socket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
+            socket.on(ACTIONS.JOINED, ({ clients, username }) => {
                 if (username !== user.name) {
                     toast.success(`${username} joined the room.`);
                 }
@@ -398,10 +422,8 @@ const EditorPage = () => {
                 gateOpenRef.current = false;
                 setNeedsPassword(false);
                 setGateError('');
-                socket.emit(ACTIONS.SYNC_CODE, {
-                    code: codeRef.current,
-                    socketId,
-                });
+                // The server sends this socket a SYNC_FILES event right after
+                // joining, so no client-to-client code sync is needed.
             });
 
             socket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
@@ -409,8 +431,100 @@ const EditorPage = () => {
                 setClients((prev) => prev.filter((client) => client.socketId !== socketId));
             });
 
-            socket.on(ACTIONS.CODE_CHANGE, ({ code }) => {
-                editorApiRef.current?.applyRemoteCode(code);
+            // Canonical file/folder state for the room, sent by the server on
+            // every join. This is what makes one user's files appear in the
+            // other user's explorer. It replaces the browser-local copy.
+            socket.on(ACTIONS.SYNC_FILES, ({ files: serverFiles, folders: serverFolders }) => {
+                if (!Array.isArray(serverFiles) || !serverFiles.length) return;
+                const mapped = serverFiles.map((file) => ({
+                    name: file.path,
+                    content: file.content ?? '',
+                    savedContent: file.content ?? '',
+                }));
+                const names = new Set(mapped.map((file) => file.name));
+                setFiles(mapped);
+                setFolders(Array.isArray(serverFolders) ? serverFolders : []);
+                setOpenFileNames((current) => {
+                    const kept = current.filter((name) => names.has(name));
+                    return kept.length ? kept : [mapped[0].name];
+                });
+                setActiveFileName((current) => (names.has(current) ? current : mapped[0].name));
+            });
+
+            // A remote edit: update the matching file in state, and only push
+            // it into the open editor when it is the file being edited.
+            // Edits to other files just refresh their cached content.
+            socket.on(ACTIONS.CODE_CHANGE, ({ path, code }) => {
+                if (typeof path !== 'string' || typeof code !== 'string') return;
+                setFiles((currentFiles) =>
+                    currentFiles.map((file) =>
+                        file.name === path ? { ...file, content: code } : file
+                    )
+                );
+                if (path === activeFileNameRef.current) {
+                    editorApiRef.current?.applyRemoteCode(code);
+                }
+            });
+
+            socket.on(ACTIONS.FILE_CREATED, ({ path, content, folders: serverFolders, username }) => {
+                if (typeof path !== 'string') return;
+                setFiles((currentFiles) => {
+                    if (currentFiles.some((file) => file.name === path)) return currentFiles;
+                    return [
+                        ...currentFiles,
+                        { name: path, content: content ?? '', savedContent: content ?? '' },
+                    ];
+                });
+                if (Array.isArray(serverFolders)) setFolders(serverFolders);
+                if (username && username !== user.name) {
+                    toast.success(`${username} created ${path.split('/').pop()}`);
+                }
+            });
+
+            socket.on(ACTIONS.FILE_DELETED, ({ path, username }) => {
+                if (typeof path !== 'string') return;
+                setFiles((currentFiles) => {
+                    if (currentFiles.length <= 1) return currentFiles;
+                    return currentFiles.filter((file) => file.name !== path);
+                });
+                setOpenFileNames((current) => {
+                    const kept = current.filter((name) => name !== path);
+                    return kept.length ? kept : current;
+                });
+                if (username && username !== user.name) {
+                    toast(`${username} deleted ${path.split('/').pop()}`);
+                }
+            });
+
+            socket.on(ACTIONS.FOLDER_CREATED, ({ folders: serverFolders, username, path }) => {
+                if (Array.isArray(serverFolders)) setFolders(serverFolders);
+                if (username && username !== user.name && typeof path === 'string') {
+                    toast.success(`${username} created folder ${path}`);
+                }
+            });
+
+            socket.on(ACTIONS.FOLDER_DELETED, ({ path, username }) => {
+                if (typeof path !== 'string') return;
+                setFolders((currentFolders) =>
+                    currentFolders.filter(
+                        (folder) => folder !== path && !isUnderFolder(folder, path)
+                    )
+                );
+                setFiles((currentFiles) => {
+                    const remaining = currentFiles.filter(
+                        (file) => file.name !== path && !isUnderFolder(file.name, path)
+                    );
+                    return remaining.length ? remaining : currentFiles;
+                });
+                setOpenFileNames((current) => {
+                    const kept = current.filter(
+                        (name) => name !== path && !isUnderFolder(name, path)
+                    );
+                    return kept.length ? kept : current;
+                });
+                if (username && username !== user.name) {
+                    toast(`${username} deleted folder ${path}`);
+                }
             });
         };
         init();
@@ -421,6 +535,11 @@ const EditorPage = () => {
                 socket.off(ACTIONS.JOINED);
                 socket.off(ACTIONS.DISCONNECTED);
                 socket.off(ACTIONS.CODE_CHANGE);
+                socket.off(ACTIONS.SYNC_FILES);
+                socket.off(ACTIONS.FILE_CREATED);
+                socket.off(ACTIONS.FILE_DELETED);
+                socket.off(ACTIONS.FOLDER_CREATED);
+                socket.off(ACTIONS.FOLDER_DELETED);
                 socket.off(ACTIONS.JOIN_DENIED);
                 socket.disconnect();
                 socketRef.current = null;

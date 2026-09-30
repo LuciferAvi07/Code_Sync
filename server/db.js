@@ -23,6 +23,24 @@ CREATE TABLE IF NOT EXISTS rooms (
     created_at TEXT NOT NULL,
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Server-authoritative file state per room. This is what makes files created
+-- by one user appear in every other user's explorer: the database (not each
+-- browser's localStorage) is the source of truth, and every file/folder
+-- mutation is broadcast to the room over Socket.io.
+CREATE TABLE IF NOT EXISTS room_files (
+    room_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS room_folders (
+    room_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (room_id, path)
+);
 `);
 
 module.exports = db;
