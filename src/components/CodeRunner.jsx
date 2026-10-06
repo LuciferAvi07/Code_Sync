@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { API_BASE } from '../api';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import WorkbenchIcon from './WorkbenchIcon';
+import { apiFetch } from '../api';
 import { buildPreviewDocument } from '../preview';
 
-const CodeRunner = ({ code, fileName, language, files = [], style }) => {
+const CodeRunner = forwardRef(({ code, fileName, language, files = [], style, disabled = false }, ref) => {
     const [stdin, setStdin] = useState('');
     const [output, setOutput] = useState('Run the selected file to see its output.');
     const [isRunning, setIsRunning] = useState(false);
     const [previewDoc, setPreviewDoc] = useState(null);
     const isPreview = language.runner === 'preview';
+    const requestRef = useRef(null);
+
+    useEffect(() => () => requestRef.current?.abort(), []);
 
     useEffect(() => {
         setPreviewDoc(null);
@@ -15,6 +19,7 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
     }, [fileName]);
 
     const runCode = async () => {
+        if (disabled || isRunning) return;
         if (isPreview) {
             setPreviewDoc(buildPreviewDocument(fileName, files, code));
             setOutput('Preview rendered below. Press Run Code again after editing.');
@@ -28,6 +33,8 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
 
         setIsRunning(true);
         setOutput(`Running ${fileName}...`);
+        const controller = new AbortController();
+        requestRef.current = controller;
 
         const sourceCode =
             language.label === 'Java'
@@ -38,36 +45,39 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
                 : code;
 
         try {
-            const response = await fetch(`${API_BASE}/api/execute`, {
+            const result = await apiFetch('/api/execute', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${localStorage.getItem('code-sync-token') || ''}`,
-                },
+                token: localStorage.getItem('code-sync-token'),
+                signal: controller.signal,
                 body: JSON.stringify({
                     sourceCode,
                     languageId: language.judge0Id,
                     stdin,
                 }),
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Execution failed.');
-            setOutput(result.output || 'Program completed without output.');
+            const status = result.statusId && result.statusId !== 3 ? `${result.status}\n` : '';
+            const metrics = result.time != null || result.memory != null
+                ? `\n\nTime: ${result.time ?? '—'} s · Memory: ${result.memory ?? '—'} KB` : '';
+            setOutput(`${status}${result.output || (result.statusId === 3 ? 'Program completed without output.' : '')}${metrics}`);
         } catch (error) {
+            if (controller.signal.aborted) return;
             setOutput(`Execution error: ${error.message}`);
         } finally {
             setIsRunning(false);
         }
     };
 
+    useImperativeHandle(ref, () => ({ run: runCode }));
+
     return (
         <section className="runnerPanel" style={style}>
             <div className="runnerHeader">
                 <div className="panelTabs">
                     <span className="panelTab active">{isPreview ? 'PREVIEW' : 'OUTPUT'}</span>
+                    <span className="runner-file-name" title={fileName}>{fileName}</span>
                 </div>
-                <button className="btn runBtn" onClick={runCode} disabled={isRunning}>
-                    {isRunning ? 'Running...' : '▷ Run Code'}
+                <button className="btn runBtn" onClick={runCode} disabled={disabled || isRunning}>
+                    <WorkbenchIcon name="play" size={12} />{isRunning ? 'Running...' : 'Run Code'}
                 </button>
             </div>
             {!isPreview && (
@@ -91,6 +101,6 @@ const CodeRunner = ({ code, fileName, language, files = [], style }) => {
             )}
         </section>
     );
-};
+});
 
 export default CodeRunner;

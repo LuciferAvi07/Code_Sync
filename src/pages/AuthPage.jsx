@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const AuthPage = () => {
@@ -109,7 +109,19 @@ const AuthPage = () => {
                         <>Already have an account? <button className="vscode-link" onClick={() => setMode('login')}>Sign in</button></>
                     )}
                 </p>
-                <Link className="vscode-auth-back" to="/">← back</Link>
+                {/* A link to "/" was a no-op loop: "/" -> ProtectedRoute -> "/login" -> this
+                    link. Going back through history at least returns the user to
+                    whatever they were trying to reach. */}
+                <button
+                    type="button"
+                    className="vscode-auth-back"
+                    onClick={() => {
+                        if (window.history.length > 1) navigate(-1);
+                        else navigate('/', { replace: true });
+                    }}
+                >
+                    ← back
+                </button>
             </div>
         </div>
     );

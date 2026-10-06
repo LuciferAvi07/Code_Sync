@@ -1,15 +1,19 @@
 import React, { useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
+import '../monaco';
 
 const MONACO_OPTIONS = {
     fontSize: 14,
+    lineHeight: 24,
     fontFamily: "'Cascadia Code', Consolas, 'Courier New', monospace",
     fontLigatures: true,
     minimap: { enabled: true },
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'on',
     cursorBlinking: 'smooth',
-    padding: { top: 12 },
+    padding: { top: 18, bottom: 16 },
+    lineNumbersMinChars: 4,
+    overviewRulerBorder: false,
     renderLineHighlight: 'all',
     bracketPairColorization: { enabled: true },
     guides: { bracketPairs: true, indentation: true },
@@ -20,6 +24,36 @@ const MONACO_OPTIONS = {
     stickyScroll: { enabled: true },
     scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
 };
+
+const defineTheme = (monaco) => monaco.editor.defineTheme('codesync-glass', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+        { token: 'comment', foreground: '687B96', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'C3A6FF' },
+        { token: 'string', foreground: 'A5D6A7' },
+        { token: 'number', foreground: 'E9C58A' },
+    ],
+    colors: {
+        'editor.background': '#101722',
+        'editor.foreground': '#D1DBEC',
+        'editorLineNumber.foreground': '#465570',
+        'editorLineNumber.activeForeground': '#9AACC7',
+        'editor.lineHighlightBackground': '#FFFFFF03',
+        'editor.lineHighlightBorder': '#FFFFFF04',
+        'editor.selectionBackground': '#6C8FFF30',
+        'editor.inactiveSelectionBackground': '#6C8FFF15',
+        'editorCursor.foreground': '#8CE3CA',
+        'editorIndentGuide.background1': '#FFFFFF08',
+        'editorIndentGuide.activeBackground1': '#FFFFFF18',
+        'editorWidget.background': '#182231',
+        'editorWidget.border': '#2C3B50',
+        'editorGutter.background': '#101722',
+        'scrollbarSlider.background': '#7283A022',
+        'scrollbarSlider.hoverBackground': '#7283A044',
+        'minimap.background': '#101722',
+    },
+});
 
 // A thin wrapper around Monaco (the editor that powers VS Code).
 // Local edits flow out through onCodeChange; remote edits are applied via
@@ -36,6 +70,25 @@ const MonacoEditor = ({
     const suppressLocalRef = useRef(false);
     const onCodeChangeRef = useRef(onCodeChange);
     onCodeChangeRef.current = onCodeChange;
+    const latestCodeRef = useRef(initialCode);
+    latestCodeRef.current = initialCode;
+
+    const applyCode = (code) => {
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        if (!model || model.getValue() === code) return;
+        suppressLocalRef.current = true;
+        try {
+            const viewState = editor.saveViewState();
+            editor.executeEdits('remote', [{ range: model.getFullModelRange(), text: code }]);
+            if (viewState) editor.restoreViewState(viewState);
+        } finally {
+            suppressLocalRef.current = false;
+        }
+    };
+
+    // A reconnect snapshot changes props without remounting the active file.
+    useEffect(() => { applyCode(initialCode); }, [initialCode]);
 
     const handleMount = (editor) => {
         editorRef.current = editor;
@@ -56,28 +109,14 @@ const MonacoEditor = ({
                 // remote edit would be re-broadcast to the room and ping-pong
                 // back to its author (an echo storm that garbles both files).
                 // EditorPage updates its own file state for the matching path.
-                applyRemoteCode(code) {
-                    const ed = editorRef.current;
-                    if (!ed || code === null || code === undefined) return;
-                    const model = ed.getModel();
-                    if (!model || model.getValue() === code) return;
-                    suppressLocalRef.current = true;
-                    try {
-                        const viewState = ed.saveViewState();
-                        ed.executeEdits('remote', [
-                            { range: model.getFullModelRange(), text: code },
-                        ]);
-                        if (viewState) ed.restoreViewState(viewState);
-                    } finally {
-                        suppressLocalRef.current = false;
-                    }
-                },
+                applyRemoteCode: applyCode,
                 focus() {
                     editorRef.current?.focus();
                 },
             };
         }
 
+        applyCode(latestCodeRef.current);
         editor.focus();
     };
 
@@ -95,7 +134,8 @@ const MonacoEditor = ({
             path={fileName}
             defaultLanguage={language.monaco || 'plaintext'}
             defaultValue={initialCode}
-            theme="vs-dark"
+            theme="codesync-glass"
+            beforeMount={defineTheme}
             options={MONACO_OPTIONS}
             onMount={handleMount}
             loading={

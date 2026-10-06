@@ -5,31 +5,22 @@ const { v4: uuidV4 } = require('uuid');
 const db = require('./db');
 
 const TOKEN_TTL = '7d';
-
-function getSecret() {
-    const secret = process.env.JWT_SECRET;
-    if (!secret || secret === 'change-me-to-a-long-random-string') {
-        console.warn(
-            'WARNING: JWT_SECRET is not set (or is still the placeholder). ' +
-            'Set a long random value in .env — auth tokens are not safe without it.'
-        );
-    }
-    return secret && secret !== 'change-me-to-a-long-random-string'
-        ? secret
-        : 'dev-only-insecure-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'change-me-to-a-long-random-string') {
+    throw new Error('Set JWT_SECRET in .env before starting the server.');
 }
 
 function signToken(user) {
     return jwt.sign(
         { sub: user.id, name: user.name, email: user.email },
-        getSecret(),
+        JWT_SECRET,
         { expiresIn: TOKEN_TTL }
     );
 }
 
 function verifyToken(token) {
     try {
-        return jwt.verify(token, getSecret());
+        return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     } catch {
         return null;
     }
@@ -54,17 +45,19 @@ function requireAuth(req, res, next) {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateCredentials({ name, email, password }, { checkName }) {
-    if (checkName && (!name || name.trim().length < 2 || name.trim().length > 30)) {
+    if (checkName && (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 30)) {
         return 'Name must be between 2 and 30 characters.';
     }
-    if (!email || !EMAIL_RE.test(email.trim())) {
+    if (typeof email !== 'string' || email.length > 254 || !EMAIL_RE.test(email.trim())) {
         return 'Enter a valid email address.';
     }
-    if (!password || password.length < 8) {
+    if (typeof password !== 'string' || password.length < 8) {
         return 'Password must be at least 8 characters long.';
     }
-    if (password.length > 72) {
-        return 'Password must be shorter than 72 characters.';
+    // Enforce bcrypt's byte limit on new accounts. Existing accounts may have
+    // been created under the old character-based limit and must still log in.
+    if (checkName && Buffer.byteLength(password, 'utf8') > 72) {
+        return 'Password must be at most 72 UTF-8 bytes.';
     }
     return null;
 }
@@ -89,9 +82,13 @@ async function register(req, res) {
         email: normalizedEmail,
         created_at: new Date().toISOString(),
     };
-    db.prepare(
-        'INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)'
+    const result = db.prepare(
+        'INSERT OR IGNORE INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)'
     ).run(user.id, user.name, user.email, passwordHash, user.created_at);
+    // Another registration may finish hashing while this one awaits bcrypt.
+    if (!result.changes) {
+        return res.status(409).json({ error: 'An account with this email already exists.' });
+    }
 
     return res.status(201).json({ token: signToken(user), user: publicUser(user) });
 }

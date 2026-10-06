@@ -14,12 +14,20 @@ const Home = () => {
     const [joinPassword, setJoinPassword] = useState('');
     const [myRooms, setMyRooms] = useState([]);
     const [busy, setBusy] = useState(false);
+    const [roomsError, setRoomsError] = useState('');
+    const [roomsLoading, setRoomsLoading] = useState(true);
+    const [reloadRooms, setReloadRooms] = useState(0);
 
     useEffect(() => {
+        let cancelled = false;
+        setRoomsLoading(true);
+        setRoomsError('');
         apiFetch('/api/rooms', { token })
-            .then((data) => setMyRooms(data.rooms))
-            .catch(() => {});
-    }, [token]);
+            .then((data) => { if (!cancelled) setMyRooms(data.rooms); })
+            .catch((error) => { if (!cancelled) setRoomsError(error.message); })
+            .finally(() => { if (!cancelled) setRoomsLoading(false); });
+        return () => { cancelled = true; };
+    }, [token, reloadRooms]);
 
     const createRoom = async (e) => {
         e.preventDefault();
@@ -48,7 +56,7 @@ const Home = () => {
             toast.error('Paste a room ID to join');
             return;
         }
-        navigate(`/editor/${id}`, {
+        navigate(`/editor/${encodeURIComponent(id)}`, {
             state: { password: joinPassword || undefined },
         });
     };
@@ -99,6 +107,8 @@ const Home = () => {
                                     onChange={(e) => setRoomPassword(e.target.value)}
                                     placeholder="Leave empty for an open room"
                                     autoComplete="new-password"
+                                    minLength={4}
+                                    maxLength={72}
                                 />
                             </label>
                             <button className="vscode-btn-primary" type="submit" disabled={busy}>
@@ -136,7 +146,12 @@ const Home = () => {
 
                 <section className="vscode-card vscode-rooms-list">
                     <h2>My rooms</h2>
-                    {myRooms.length === 0 ? (
+                    {roomsLoading ? <p role="status">Loading rooms…</p> : roomsError ? (
+                        <div role="alert">
+                            <p>{roomsError}</p>
+                            <button className="vscode-btn-ghost" onClick={() => setReloadRooms((value) => value + 1)}>Retry</button>
+                        </div>
+                    ) : myRooms.length === 0 ? (
                         <p className="vscode-muted">Rooms you create will show up here.</p>
                     ) : (
                         <ul>

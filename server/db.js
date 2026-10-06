@@ -3,8 +3,11 @@
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
-const db = new DatabaseSync(path.join(__dirname, 'data.sqlite'));
+const db = new DatabaseSync(process.env.DATABASE_PATH || path.join(__dirname, 'data.sqlite'));
 db.exec('PRAGMA journal_mode = WAL');
+// SQLite ignores foreign keys unless this is switched on per connection, so the
+// rooms -> users cascade in the schema below was silently inert.
+db.exec('PRAGMA foreign_keys = ON');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

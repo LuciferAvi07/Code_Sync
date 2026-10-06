@@ -18,12 +18,31 @@ const LANGUAGES = {
     plaintext:  { label: 'Plain text', extensions: ['txt'],        mode: null,          monaco: 'plaintext',  judge0Id: null },
 };
 
+// 'Dockerfile' has no dot, and 'a.tar.gz' resolves to 'gz'. Anything we do not
+// recognise is plain text, NOT JavaScript: defaulting to javascript gave a
+// working "Run Code" button that posted garbage to Judge0.
+const EXTENSIONLESS = {
+    dockerfile: 'plaintext',
+    makefile: 'plaintext',
+    license: 'plaintext',
+    readme: 'plaintext',
+    procfile: 'plaintext',
+    '.gitignore': 'plaintext',
+    '.env': 'plaintext',
+};
+
 export const getLanguageForFile = (fileName) => {
-    const extension = fileName.split('.').pop()?.toLowerCase();
+    const baseName = String(fileName).split('/').pop()?.toLowerCase() ?? '';
+    const dotIndex = baseName.lastIndexOf('.');
+    const extension = dotIndex > 0 ? baseName.slice(dotIndex + 1) : '';
+    if (!extension) {
+        // No dot at all (or a dotfile like ".env"): match the whole name.
+        return LANGUAGES[EXTENSIONLESS[baseName]] || LANGUAGES.plaintext;
+    }
     return (
         Object.values(LANGUAGES).find((language) =>
             language.extensions.includes(extension)
-        ) || LANGUAGES.javascript
+        ) || LANGUAGES.plaintext
     );
 };
 

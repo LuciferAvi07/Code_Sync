@@ -1,87 +1,44 @@
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 const escapeForTag = (value, tagName) =>
     String(value || '').replace(new RegExp(`</${tagName}`, 'gi'), `<\\/${tagName}`);
 
-const injectBeforeCloseTag = (html, tagName, fragment) => {
-    const pattern = new RegExp(`</${tagName}\\s*>`, 'i');
-    if (!pattern.test(html)) return null;
-    return html.replace(pattern, (match) => `${fragment}\n${match}`);
-};
+const escapeAttribute = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
-const injectIntoOpeningTag = (html, tagName, fragment) => {
-    const pattern = new RegExp(`<${tagName}(\\s[^>]*)?>`, 'i');
-    if (!pattern.test(html)) return null;
-    return html.replace(pattern, (match) => `${match}\n${fragment}`);
-};
-
-const stripLocalReferences = (html, cssNames, jsNames) => {
-    let result = html;
-    if (cssNames.length) {
-        const names = cssNames.map(escapeRegExp).join('|');
-        result = result.replace(
-            new RegExp(
-                `<link\\b[^>]*href=["'](?:\\.\\/)?(?:${names})(?:[?#][^"']*)?["'][^>]*>`,
-                'gi'
-            ),
-            ''
-        );
+const resolveReference = (fileName, reference) => {
+    if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(reference)) return null;
+    const parts = reference.startsWith('/') ? [] : fileName.split('/').slice(0, -1);
+    for (const part of reference.split(/[?#]/)[0].split('/')) {
+        if (!part || part === '.') continue;
+        if (part === '..') parts.pop();
+        else parts.push(part);
     }
-    if (jsNames.length) {
-        const names = jsNames.map(escapeRegExp).join('|');
-        result = result.replace(
-            new RegExp(
-                `<script\\b[^>]*src=["'](?:\\.\\/)?(?:${names})(?:[?#][^"']*)?["'][^>]*>\\s*<\\/script>`,
-                'gi'
-            ),
-            ''
-        );
-    }
-    return result;
+    return parts.join('/');
 };
 
 const buildHtmlPreview = (activeFile, files) => {
-    const otherFiles = (files || []).filter(
-        (file) => file && file.name && file.name !== activeFile.name
+    const byPath = new Map(files.filter(Boolean).map((file) => [file.name, file]));
+    const getFile = (reference) => byPath.get(resolveReference(activeFile.name, reference));
+    // Inline only referenced assets, in document order. Injecting every JS/CSS
+    // file ran unrelated programs and broke pages in nested directories.
+    let html = String(activeFile.content || '').replace(
+        /<link\b[^>]*>/gi,
+        (tag) => {
+            if (!/\brel\s*=\s*["']stylesheet["']/i.test(tag)) return tag;
+            const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+            const file = href && getFile(href);
+            if (!file) return tag;
+            const media = tag.match(/\bmedia\s*=\s*["']([^"']*)["']/i)?.[1];
+            return `<style data-preview-file="${escapeAttribute(file.name)}"${media ? ` media="${escapeAttribute(media)}"` : ''}>\n${escapeForTag(file.content, 'style')}\n</style>`;
+        }
+    ).replace(
+        /<script\b([^>]*)>\s*<\/script\s*>/gi,
+        (tag, attributes) => {
+            const src = attributes.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
+            const file = src && getFile(src);
+            if (!file) return tag;
+            const rest = attributes.replace(/\bsrc\s*=\s*["'][^"']+["']/i, '');
+            return `<script${rest} data-preview-file="${escapeAttribute(file.name)}">\n${escapeForTag(file.content, 'script')}\n</script>`;
+        }
     );
-    const cssFiles = otherFiles.filter((file) => /\.css$/i.test(file.name));
-    const jsFiles = otherFiles.filter((file) => /\.jsx?$/i.test(file.name));
-
-    let html = stripLocalReferences(
-        String(activeFile.content || ''),
-        cssFiles.map((file) => file.name),
-        jsFiles.map((file) => file.name)
-    );
-
-    if (cssFiles.length) {
-        const styles = cssFiles
-            .map(
-                (file) =>
-                    `<style data-preview-file="${file.name}">\n${escapeForTag(
-                        file.content,
-                        'style'
-                    )}\n</style>`
-            )
-            .join('\n');
-        html =
-            injectBeforeCloseTag(html, 'head', styles) ||
-            injectIntoOpeningTag(html, 'body', styles) ||
-            injectIntoOpeningTag(html, 'html', styles) ||
-            `${styles}\n${html}`;
-    }
-
-    if (jsFiles.length) {
-        const scripts = jsFiles
-            .map(
-                (file) =>
-                    `<script data-preview-file="${file.name}">\n${escapeForTag(
-                        file.content,
-                        'script'
-                    )}\n</script>`
-            )
-            .join('\n');
-        html = injectBeforeCloseTag(html, 'body', scripts) || `${html}\n${scripts}`;
-    }
 
     if (!/<!doctype\s+html/i.test(html)) {
         html = `<!DOCTYPE html>\n${html}`;

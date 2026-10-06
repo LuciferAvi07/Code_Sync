@@ -9,6 +9,8 @@
 
 # testing
 /coverage
+/test-results
+/playwright-report
 
 # production
 /build
@@ -23,7 +25,12 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-# local sqlite database (users + rooms) — never commit
+
+# server stdout/stderr — runtime artifacts, not source
+server.log
+server.err
+
+# local sqlite database (users + rooms + room files/folders) — never commit
 /server/data.sqlite
 /server/data.sqlite-wal
 /server/data.sqlite-shm
